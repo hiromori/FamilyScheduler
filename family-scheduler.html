@@ -318,27 +318,31 @@ function saveCfg(o){localStorage.setItem('fsc',JSON.stringify(o))}
 
 // ── Boot ───────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded',()=>{
-  // URLパラメータ解析（招待リンク）
   const sp=new URLSearchParams(location.search);
   const urlFid=sp.get('fid'), urlCfg=sp.get('cfg');
+
+  // 保存済み設定があれば自動ログイン（最優先）
+  const saved=loadCfg();
+  if(saved&&saved.apiKey){
+    if(urlFid) saved.fid=urlFid;
+    showLoading();waitFb(()=>initFb(saved,false));
+    return;
+  }
+
+  // URLパラメータあり = 招待リンクで初回アクセス → 名前入力画面を表示
   if(urlFid&&urlCfg){
     try{
       const dec=JSON.parse(atob(urlCfg));
-      document.getElementById('cfgApiKey').value   =dec.apiKey||'';
-      document.getElementById('cfgProjectId').value=dec.projectId||'';
-      document.getElementById('cfgDbUrl').value    =dec.dbUrl||'';
+      document.getElementById('cfgApiKey').value    =dec.apiKey||'';
+      document.getElementById('cfgProjectId').value =dec.projectId||'';
+      document.getElementById('cfgDbUrl').value     =dec.dbUrl||'';
       document.getElementById('cfgFamilyName').value=dec.familyName||'';
-      // JOINカードにデータを仕込む
       const jn=document.getElementById('cfgMyNameJoin');
       jn.dataset.fid=urlFid; jn.dataset.cfg=urlCfg;
       document.getElementById('joinHint').textContent=`「${dec.familyName||'家族カレンダー'}」に参加します`;
-      // NEW カードを折りたたむ
       document.getElementById('cardNew').style.display='none';
     }catch(e){}
   }
-  // 保存済み設定があれば自動ログイン
-  const saved=loadCfg();
-  if(saved&&saved.apiKey){showLoading();waitFb(()=>initFb(saved,false));}
 });
 
 // ── Setup: 新規 ────────────────────────────────────────────
@@ -625,9 +629,23 @@ function removeMember(id){
 
 // ── Invite ─────────────────────────────────────────────────
 function openInviteModal(){
-  const cfg=loadCfg();if(!cfg)return;
-  const b64=btoa(JSON.stringify({apiKey:cfg.apiKey,projectId:cfg.projectId,dbUrl:cfg.dbUrl,familyName:live.familyName}));
-  const url=`${location.origin}${location.pathname}?fid=${familyId}&cfg=${b64}`;
+  // cfg を localStorage → URLパラメータの順で取得
+  let cfg=loadCfg();
+  if(!cfg){
+    // URLパラメータから復元を試みる
+    const sp=new URLSearchParams(location.search);
+    const urlCfg=sp.get('cfg');
+    if(urlCfg){
+      try{ cfg=JSON.parse(atob(urlCfg)); }catch(e){}
+    }
+  }
+  if(!cfg||!cfg.apiKey){
+    alert('設定情報が見つかりません。\n一度ページを再読み込みしてください。');
+    return;
+  }
+  const b64=btoa(JSON.stringify({apiKey:cfg.apiKey,projectId:cfg.projectId||cfg.projectId,dbUrl:cfg.dbUrl,familyName:live.familyName}));
+  const base=location.origin+location.pathname;
+  const url=`${base}?fid=${familyId}&cfg=${b64}`;
   const box=document.getElementById('inviteUrlBox');
   box.textContent=url;box.dataset.url=url;
   openModal('inviteModal');
