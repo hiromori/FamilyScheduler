@@ -329,19 +329,26 @@ window.addEventListener('DOMContentLoaded',()=>{
     return;
   }
 
-  // URLパラメータあり = 招待リンクで初回アクセス → 名前入力画面を表示
+  // URLパラメータあり = 招待リンク → 名前入力なしで自動接続
   if(urlFid&&urlCfg){
     try{
       const dec=JSON.parse(atob(urlCfg));
-      document.getElementById('cfgApiKey').value    =dec.apiKey||'';
-      document.getElementById('cfgProjectId').value =dec.projectId||'';
-      document.getElementById('cfgDbUrl').value     =dec.dbUrl||'';
-      document.getElementById('cfgFamilyName').value=dec.familyName||'';
-      const jn=document.getElementById('cfgMyNameJoin');
-      jn.dataset.fid=urlFid; jn.dataset.cfg=urlCfg;
-      document.getElementById('joinHint').textContent=`「${dec.familyName||'家族カレンダー'}」に参加します`;
+      // 自動的に「ゲスト」として接続し、あとでメンバー管理から名前変更可能
+      const autoName=dec.familyName?dec.familyName+'のメンバー':'メンバー';
+      const cfg={
+        apiKey:dec.apiKey, projectId:dec.projectId, dbUrl:dec.dbUrl,
+        familyName:dec.familyName, fid:urlFid,
+        myId:'_'+Math.random().toString(36).slice(2,9),
+        myName:autoName, isOwner:false
+      };
+      saveCfg(cfg);
+      showLoading();
+      waitFb(()=>initFb(cfg,false));
+    }catch(e){
+      // パース失敗時は名前入力画面を表示
       document.getElementById('cardNew').style.display='none';
-    }catch(e){}
+    }
+    return;
   }
 });
 
@@ -606,11 +613,23 @@ function renderML(){
   document.getElementById('memberListEl').innerHTML=Object.entries(live.members).map(([id,m])=>{
     const c=gc(m.color),isMe=id===myInfo.id;
     return `<div class="mrow" style="background:${c.light}">
-      <div style="width:10px;height:10px;border-radius:50%;background:${c.hex}"></div>
+      <div style="width:10px;height:10px;border-radius:50%;background:${c.hex};flex-shrink:0"></div>
       <div style="flex:1;font-weight:500;font-size:14px">${m.name}${isMe?' 👤':''}</div>
+      ${isMe?`<button class="hdr-btn" style="background:#e8f5e8;font-size:11px;width:auto;padding:4px 8px;border-radius:8px" onclick="renameSelf()">名前変更</button>`:''}
       ${!isMe?`<button class="hdr-btn" style="background:#ffebeb;font-size:13px" onclick="removeMember('${id}')">✕</button>`:''}
     </div>`;
   }).join('');
+}
+function renameSelf(){
+  const newName=prompt('新しい名前を入力してください',myInfo.name);
+  if(!newName||!newName.trim())return;
+  myInfo.name=newName.trim();
+  const saved=loadCfg();
+  if(saved){saved.myName=myInfo.name;saveCfg(saved);}
+  const {ref,set,db}=window._DB;
+  set(ref(db,`families/${familyId}/members/${myInfo.id}/name`),myInfo.name);
+  toast('✅ 名前を変更しました');
+  renderML();
 }
 function addMember(){
   const name=document.getElementById('newMemberName').value.trim();
@@ -629,23 +648,31 @@ function removeMember(id){
 
 // ── Invite ─────────────────────────────────────────────────
 function openInviteModal(){
-  // cfg を localStorage → URLパラメータの順で取得
-  let cfg=loadCfg();
-  if(!cfg){
-    // URLパラメータから復元を試みる
-    const sp=new URLSearchParams(location.search);
-    const urlCfg=sp.get('cfg');
-    if(urlCfg){
-      try{ cfg=JSON.parse(atob(urlCfg)); }catch(e){}
-    }
+  // URLパラメータから直接取得（localStorageに依存しない）
+  const sp=new URLSearchParams(location.search);
+  const urlCfg=sp.get('cfg');
+  let cfgB64=urlCfg||'';
+
+  // localStorageにあれば上書き
+  const saved=loadCfg();
+  if(saved&&saved.apiKey){
+    try{
+      cfgB64=btoa(JSON.stringify({
+        apiKey:saved.apiKey,
+        projectId:saved.projectId,
+        dbUrl:saved.dbUrl,
+        familyName:live.familyName||saved.familyName
+      }));
+    }catch(e){}
   }
-  if(!cfg||!cfg.apiKey){
-    alert('設定情報が見つかりません。\n一度ページを再読み込みしてください。');
+
+  if(!cfgB64||!familyId){
+    alert('招待URLを生成できません。\nページを再読み込みしてお試しください。');
     return;
   }
-  const b64=btoa(JSON.stringify({apiKey:cfg.apiKey,projectId:cfg.projectId||cfg.projectId,dbUrl:cfg.dbUrl,familyName:live.familyName}));
+
   const base=location.origin+location.pathname;
-  const url=`${base}?fid=${familyId}&cfg=${b64}`;
+  const url=base+'?fid='+familyId+'&cfg='+cfgB64;
   const box=document.getElementById('inviteUrlBox');
   box.textContent=url;box.dataset.url=url;
   openModal('inviteModal');
