@@ -142,6 +142,15 @@ textarea.fi{resize:vertical;min-height:70px}
 .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--brown);color:#fff;padding:10px 22px;border-radius:20px;font-size:13px;opacity:0;transition:all .3s;pointer-events:none;z-index:500;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .hidden{display:none!important}
+/* ── HOLIDAY / PUBLIC EVENT ── */
+.cal-day.holiday .day-num{color:#d32f2f;font-weight:700}
+.cal-day.holiday-bg{background:rgba(211,47,47,.06)}
+.holiday-label{font-size:8px;color:#d32f2f;line-height:1.2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}
+.pub-dot{width:5px;height:5px;border-radius:50%;background:#7B1FA2}
+.event-card.pub{border-left-color:#7B1FA2}
+.ev-pub-badge{font-size:10px;padding:2px 7px;border-radius:10px;background:#EDE7F6;color:#4A148C;font-weight:500}
+.tab-pub{flex:1;padding:11px 4px;text-align:center;font-size:12px;font-weight:500;color:var(--brown-l);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s}
+.tab-pub.active{color:#7B1FA2;border-bottom-color:#7B1FA2}
 </style>
 </head>
 <body>
@@ -199,6 +208,7 @@ textarea.fi{resize:vertical;min-height:70px}
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="switchView('calendar')" id="tab-calendar">📅 カレンダー</div>
     <div class="nav-tab"       onclick="switchView('list')"     id="tab-list">📋 リスト</div>
+    <div class="tab-pub"       onclick="switchView('public')"   id="tab-public">🌏 公式</div>
   </div>
 
   <!-- Calendar View -->
@@ -219,6 +229,15 @@ textarea.fi{resize:vertical;min-height:70px}
   <!-- List View -->
   <div id="view-list" class="hidden">
     <div class="list-view" id="listView"></div>
+  </div>
+
+  <!-- Public View -->
+  <div id="view-public" class="hidden">
+    <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:13px;font-weight:700;color:var(--brown)">🌏 祝日・公式イベント</div>
+      <button class="hdr-btn" style="background:#EDE7F6;color:#7B1FA2;width:auto;padding:6px 12px;border-radius:10px;font-size:12px" onclick="openPublicAddModal()">＋ 追加</button>
+    </div>
+    <div class="list-view" id="publicView"></div>
   </div>
 
   <button class="fab" onclick="openAddModal()">＋</button>
@@ -263,6 +282,33 @@ textarea.fi{resize:vertical;min-height:70px}
   </div>
 </div>
 
+<!-- ══ PUBLIC EVENT MODAL ══════════════════════════ -->
+<div class="modal-overlay" id="publicModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="pubModalTitle">🌏 公式イベントを追加</div>
+    <div class="fg"><label class="fl">タイトル *</label><input class="fi" id="pubTitle" placeholder="例：オリンピック開会式、W杯決勝" maxlength="30"></div>
+    <div class="two-col">
+      <div class="fg"><label class="fl">開始日 *</label><input class="fi" type="date" id="pubDateFrom"></div>
+      <div class="fg"><label class="fl">終了日</label><input class="fi" type="date" id="pubDateTo"></div>
+    </div>
+    <div class="fg"><label class="fl">カテゴリ</label>
+      <select class="fi" id="pubCategory">
+        <option value="holiday">🎌 祝日・休日</option>
+        <option value="sports">🏅 スポーツ</option>
+        <option value="culture">🎭 文化・芸術</option>
+        <option value="world">🌍 世界イベント</option>
+        <option value="season">🌸 季節・行事</option>
+        <option value="other">📌 その他</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">メモ</label><textarea class="fi" id="pubNote" placeholder="詳細メモ…" style="min-height:60px"></textarea></div>
+    <button class="btn-primary" style="background:linear-gradient(135deg,#9C27B0,#6A1B9A)" onclick="savePublicEvent()">保存する</button>
+    <button class="btn-delete hidden" id="btnPubDelete" onclick="deletePublicEvent()">このイベントを削除</button>
+    <button class="btn-secondary" onclick="closeModal('publicModal')">キャンセル</button>
+  </div>
+</div>
+
 <!-- ══ INVITE MODAL ══════════════════════════════ -->
 <div class="modal-overlay" id="inviteModal">
   <div class="modal">
@@ -285,6 +331,39 @@ textarea.fi{resize:vertical;min-height:70px}
 <div class="toast" id="toast"></div>
 
 <script>
+// ── 日本の祝日データ (2024-2027) ──────────────────────────────
+const HOLIDAYS={
+  '2024-01-01':'元日','2024-01-08':'成人の日','2024-02-11':'建国記念の日',
+  '2024-02-12':'建国記念の日 振替','2024-02-23':'天皇誕生日','2024-03-20':'春分の日',
+  '2024-04-29':'昭和の日','2024-05-03':'憲法記念日','2024-05-04':'みどりの日',
+  '2024-05-05':'こどもの日','2024-05-06':'こどもの日 振替','2024-07-15':'海の日',
+  '2024-08-11':'山の日','2024-08-12':'山の日 振替','2024-09-16':'敬老の日',
+  '2024-09-22':'秋分の日','2024-09-23':'秋分の日 振替','2024-10-14':'スポーツの日',
+  '2024-11-03':'文化の日','2024-11-04':'文化の日 振替','2024-11-23':'勤労感謝の日',
+  '2025-01-01':'元日','2025-01-13':'成人の日','2025-02-11':'建国記念の日',
+  '2025-02-23':'天皇誕生日','2025-02-24':'天皇誕生日 振替','2025-03-20':'春分の日',
+  '2025-04-29':'昭和の日','2025-05-03':'憲法記念日','2025-05-04':'みどりの日',
+  '2025-05-05':'こどもの日','2025-05-06':'こどもの日 振替','2025-07-21':'海の日',
+  '2025-08-11':'山の日','2025-09-15':'敬老の日','2025-09-23':'秋分の日',
+  '2025-10-13':'スポーツの日','2025-11-03':'文化の日','2025-11-23':'勤労感謝の日',
+  '2025-11-24':'勤労感謝の日 振替','2026-01-01':'元日','2026-01-12':'成人の日',
+  '2026-02-11':'建国記念の日','2026-02-23':'天皇誕生日','2026-03-20':'春分の日',
+  '2026-04-29':'昭和の日','2026-05-03':'憲法記念日','2026-05-04':'みどりの日',
+  '2026-05-05':'こどもの日','2026-07-20':'海の日','2026-08-11':'山の日',
+  '2026-09-21':'敬老の日','2026-09-22':'国民の休日','2026-09-23':'秋分の日',
+  '2026-10-12':'スポーツの日','2026-11-03':'文化の日','2026-11-23':'勤労感謝の日',
+  '2027-01-01':'元日','2027-01-11':'成人の日','2027-02-11':'建国記念の日',
+  '2027-02-23':'天皇誕生日','2027-03-21':'春分の日','2027-04-29':'昭和の日',
+  '2027-05-03':'憲法記念日','2027-05-04':'みどりの日','2027-05-05':'こどもの日',
+  '2027-07-19':'海の日','2027-08-11':'山の日','2027-09-20':'敬老の日',
+  '2027-09-23':'秋分の日','2027-10-11':'スポーツの日','2027-11-03':'文化の日',
+  '2027-11-23':'勤労感謝の日',
+};
+const CAT_ICONS={'holiday':'🎌','sports':'🏅','culture':'🎭','world':'🌍','season':'🌸','other':'📌'};
+const CAT_COLORS={'holiday':'#d32f2f','sports':'#1565C0','culture':'#6A1B9A','world':'#2E7D32','season':'#E65100','other':'#4A148C'};
+
+function getHoliday(ds){return HOLIDAYS[ds]||null}
+
 // ── Constants ──────────────────────────────────────────────
 const COLORS=[
   {id:'peach',hex:'#F4A26B',light:'#FAD5B5'},
@@ -423,7 +502,7 @@ function subscribe(){
   const {ref,onValue,db}=window._DB;
   onValue(ref(db,`families/${familyId}`), snap=>{
     const data=snap.val()||{};
-    live={familyName:data.familyName||'家族カレンダー',members:data.members||{},events:data.events||{}};
+    live={familyName:data.familyName||'家族カレンダー',members:data.members||{},events:data.events||{},publicEvents:data.publicEvents||{}};
     if(ui.activeMembers.size===0) Object.keys(live.members).forEach(id=>ui.activeMembers.add(id));
     hideLoading();
     document.getElementById('app').style.display='block';
@@ -450,8 +529,10 @@ function switchView(v){
   ui.view=v;
   document.getElementById('view-calendar').classList.toggle('hidden',v!=='calendar');
   document.getElementById('view-list').classList.toggle('hidden',v!=='list');
+  document.getElementById('view-public').classList.toggle('hidden',v!=='public');
   document.getElementById('tab-calendar').classList.toggle('active',v==='calendar');
   document.getElementById('tab-list').classList.toggle('active',v==='list');
+  document.getElementById('tab-public').classList.toggle('active',v==='public');
   render();
 }
 
@@ -459,7 +540,8 @@ function switchView(v){
 function render(){
   renderMemberBar();
   if(ui.view==='calendar') renderCalendar();
-  else renderList();
+  else if(ui.view==='list') renderList();
+  else renderPublic();
 }
 
 function renderMemberBar(){
@@ -486,9 +568,15 @@ function renderCalendar(){
     const ds=`${y}-${p2(mo+1)}-${p2(d)}`;
     const dow=new Date(y,mo,d).getDay();
     const dayEvs=visEvs.filter(e=>e.date===ds);
-    const dots=dayEvs.slice(0,6).map(e=>`<div class="day-dot" style="background:${gc(e.color).hex}"></div>`).join('');
-    html+=`<div class="cal-day${ds===today()?' today':''}${ds===ui.selDate?' selected':''}${dow===0?' sunday':dow===6?' saturday':''}" onclick="selDay('${ds}')">
-      <div class="day-num">${d}</div><div class="day-dots">${dots}</div></div>`;
+    const pubEvs=getPublicEventsForDate(ds);
+    const holiday=getHoliday(ds);
+    const dots=dayEvs.slice(0,4).map(e=>`<div class="day-dot" style="background:${gc(e.color).hex}"></div>`).join('');
+    const pubDots=pubEvs.slice(0,2).map(()=>`<div class="pub-dot"></div>`).join('');
+    const isHoliday=!!holiday;
+    html+=`<div class="cal-day${ds===today()?' today':''}${ds===ui.selDate?' selected':''}${dow===0?' sunday':dow===6?' saturday':''}${isHoliday?' holiday holiday-bg':''}" onclick="selDay('${ds}')">
+      <div class="day-num">${d}</div>
+      ${holiday?`<div class="holiday-label">${holiday}</div>`:''}
+      <div class="day-dots">${dots}${pubDots}</div></div>`;
   }
   const rem=(startDow+lastDay)%7;
   if(rem>0) for(let i=1;i<=7-rem;i++) html+=`<div class="cal-day other-month"><div class="day-num">${i}</div></div>`;
@@ -502,7 +590,13 @@ function renderDayPanel(){
   const d=new Date(ds+'T00:00:00');
   document.getElementById('dayPanelTitle').textContent=`${d.getMonth()+1}月${d.getDate()}日（${DN[d.getDay()]}）の予定`;
   const evs=getVisibleEvents().filter(e=>e.date===ds).sort((a,b)=>(a.start||'').localeCompare(b.start||''));
-  document.getElementById('dayEventList').innerHTML=evs.length?evs.map(eventCard).join(''):'<div class="no-events">予定はありません</div>';
+  const pubEvs=getPublicEventsForDate(ds);
+  const holiday=getHoliday(ds);
+  let html='';
+  if(holiday) html+=`<div style="padding:8px 10px;background:#FFEBEE;border-radius:10px;margin-bottom:8px;font-size:13px;color:#c62828;font-weight:700">🎌 ${holiday}</div>`;
+  html+=pubEvs.map(publicEventCard).join('');
+  html+=evs.map(eventCard).join('');
+  document.getElementById('dayEventList').innerHTML=html||'<div class="no-events">予定はありません</div>';
 }
 
 // ── List ───────────────────────────────────────────────────
@@ -530,6 +624,96 @@ function renderList(){
 function getVisibleEvents(){
   return Object.entries(live.events).map(([id,e])=>({...e,id}))
     .filter(e=>(e.members||[]).some(mid=>ui.activeMembers.has(mid)));
+}
+
+// ── Public Events ─────────────────────────────────────────
+function getPublicEvents(){
+  return Object.entries(live.publicEvents||{}).map(([id,e])=>({...e,id}));
+}
+function getPublicEventsForDate(ds){
+  return getPublicEvents().filter(e=>{
+    if(e.dateTo) return ds>=e.dateFrom && ds<=e.dateTo;
+    return e.dateFrom===ds;
+  });
+}
+function publicEventCard(e){
+  const cat=e.category||'other';
+  const icon=CAT_ICONS[cat]||'📌';
+  const col=CAT_COLORS[cat]||'#4A148C';
+  const range=e.dateTo&&e.dateTo!==e.dateFrom?`${e.dateFrom} 〜 ${e.dateTo}`:e.dateFrom;
+  return `<div class="event-card pub" style="border-left-color:${col};cursor:pointer" onclick="openPublicEditModal('${e.id}')">
+    <div class="ev-title">${icon} ${e.title}</div>
+    <div class="ev-meta"><span>📅 ${range}</span></div>
+    ${e.note?`<div class="ev-meta" style="margin-top:3px"><span>📝 ${e.note}</span></div>`:''}
+  </div>`;
+}
+function renderPublic(){
+  const now=today();
+  const all=getPublicEvents().sort((a,b)=>a.dateFrom.localeCompare(b.dateFrom));
+  const upcoming=all.filter(e=>(e.dateTo||e.dateFrom)>=now);
+  const past=all.filter(e=>(e.dateTo||e.dateFrom)<now);
+  let html='';
+  if(!all.length){html='<div class="no-events" style="padding:40px">公式イベントがありません<br>右上の＋ボタンで追加！</div>';}
+  let ld='';
+  for(const e of upcoming){
+    const ds=e.dateFrom;
+    if(ds!==ld){const d=new Date(ds+'T00:00:00');html+=`<div class="list-date-header">${d.getMonth()+1}月${d.getDate()}日〜</div>`;ld=ds;}
+    html+=publicEventCard(e);
+  }
+  if(past.length){
+    html+='<div class="list-date-header" style="margin-top:16px;opacity:.5">── 過去 ──</div>';
+    for(const e of [...past].reverse()) html+=`<div style="opacity:.5">${publicEventCard(e)}</div>`;
+  }
+  document.getElementById('publicView').innerHTML=html;
+}
+
+let ui_pubEditId=null;
+function openPublicAddModal(){
+  ui_pubEditId=null;
+  document.getElementById('pubModalTitle').textContent='🌏 公式イベントを追加';
+  document.getElementById('pubTitle').value='';
+  document.getElementById('pubDateFrom').value=ui.selDate||today();
+  document.getElementById('pubDateTo').value='';
+  document.getElementById('pubCategory').value='holiday';
+  document.getElementById('pubNote').value='';
+  document.getElementById('btnPubDelete').classList.add('hidden');
+  openModal('publicModal');
+}
+function openPublicEditModal(id){
+  const e=(live.publicEvents||{})[id]; if(!e)return;
+  ui_pubEditId=id;
+  document.getElementById('pubModalTitle').textContent='🌏 公式イベントを編集';
+  document.getElementById('pubTitle').value=e.title;
+  document.getElementById('pubDateFrom').value=e.dateFrom;
+  document.getElementById('pubDateTo').value=e.dateTo||'';
+  document.getElementById('pubCategory').value=e.category||'other';
+  document.getElementById('pubNote').value=e.note||'';
+  document.getElementById('btnPubDelete').classList.remove('hidden');
+  openModal('publicModal');
+}
+function savePublicEvent(){
+  const title=document.getElementById('pubTitle').value.trim();
+  const dateFrom=document.getElementById('pubDateFrom').value;
+  if(!title||!dateFrom){alert('タイトルと開始日は必須です');return;}
+  const ev={
+    title, dateFrom,
+    dateTo:document.getElementById('pubDateTo').value||dateFrom,
+    category:document.getElementById('pubCategory').value,
+    note:document.getElementById('pubNote').value.trim(),
+    updatedAt:Date.now()
+  };
+  const {ref,set,push,db}=window._DB;
+  if(ui_pubEditId) set(ref(db,`families/${familyId}/publicEvents/${ui_pubEditId}`),ev);
+  else push(ref(db,`families/${familyId}/publicEvents`),ev);
+  closeModal('publicModal');
+  toast('✅ 保存しました');
+}
+function deletePublicEvent(){
+  if(!confirm('このイベントを削除しますか？'))return;
+  const {ref,remove,db}=window._DB;
+  remove(ref(db,`families/${familyId}/publicEvents/${ui_pubEditId}`));
+  closeModal('publicModal');
+  toast('🗑️ 削除しました');
 }
 
 function eventCard(e){
