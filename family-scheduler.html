@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>家族カレンダー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK (ESM) -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, set, push, remove }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+window._FB = { initializeApp, getDatabase, ref, onValue, set, push, remove };
+document.dispatchEvent(new Event('fbReady'));
+</script>
+
+<style>
+:root{
+  --cream:#FDF6EC;--warm:#FFFBF5;--peach:#F4A26B;--peach-l:#FAD5B5;
+  --peach-d:#E07B3A;--sage:#7BAE8A;--sage-l:#B8D4C0;--sky:#6BA8C4;
+  --sky-l:#B5D5E8;--lav:#9B7FC4;--lav-l:#CFBFE8;--rose:#C46B8A;
+  --rose-l:#E8B5C8;--brown:#4A3728;--brown-l:#7A6558;
+  --shadow:rgba(74,55,40,.12);--line:#06C755;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--cream);color:var(--brown);min-height:100vh;overflow-x:hidden}
+
+/* ── SETUP ── */
+#setupScreen{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-height:100vh;padding:24px 16px 40px;background:var(--cream)}
+.setup-logo{font-family:'Playfair Display',serif;font-size:30px;color:var(--peach-d);text-align:center;margin-bottom:4px;margin-top:20px}
+.setup-sub{text-align:center;font-size:13px;color:var(--brown-l);margin-bottom:22px}
+.setup-card{background:var(--warm);border-radius:22px;padding:24px 20px;max-width:480px;width:100%;box-shadow:0 8px 32px var(--shadow);margin-bottom:14px}
+.setup-card-title{font-size:15px;font-weight:700;color:var(--brown);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.step-badge{background:var(--peach-l);color:var(--peach-d);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px}
+.si{width:100%;padding:11px 13px;border:2px solid var(--peach-l);border-radius:11px;font-family:'Noto Sans JP',sans-serif;font-size:14px;color:var(--brown);background:var(--cream);outline:none;transition:border-color .2s;margin-bottom:8px}
+.si:focus{border-color:var(--peach)}
+.si-hint{font-size:11px;color:var(--brown-l);line-height:1.6;margin-bottom:10px}
+.si-hint code{background:#f0ebe5;padding:1px 5px;border-radius:4px;font-size:11px}
+.btn-go{width:100%;padding:13px;border-radius:13px;border:none;background:linear-gradient(135deg,var(--peach),var(--peach-d));color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.btn-join{width:100%;padding:13px;border-radius:13px;border:none;background:var(--sage);color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.divider{text-align:center;font-size:12px;color:var(--brown-l);margin:6px 0;opacity:.6}
+
+/* ── LOADING ── */
+#loadingScreen{display:none;position:fixed;inset:0;background:var(--cream);flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:999}
+.spinner{width:44px;height:44px;border:4px solid var(--peach-l);border-top-color:var(--peach-d);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── APP ── */
+#app{display:none}
+header{background:var(--warm);padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px var(--shadow);position:sticky;top:0;z-index:100}
+header h1{font-family:'Playfair Display',serif;font-size:20px;color:var(--peach-d)}
+header h1 span{color:var(--brown-l);font-size:11px;font-family:'Noto Sans JP',sans-serif;font-weight:300;display:block;margin-top:1px}
+.hdr-btns{display:flex;gap:8px;align-items:center}
+.hdr-btn{width:34px;height:34px;border-radius:50%;border:none;background:var(--peach-l);color:var(--peach-d);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#ccc;transition:background .3s;flex-shrink:0}
+.sync-dot.live{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
+
+/* ── MEMBER BAR ── */
+.member-bar{background:var(--warm);padding:10px 14px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--peach-l)}
+.member-bar::-webkit-scrollbar{display:none}
+.member-chip{display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:2px solid transparent;white-space:nowrap;transition:all .2s;user-select:none}
+.member-chip .dot{width:7px;height:7px;border-radius:50%}
+.member-chip.active{border-color:currentColor}
+.member-chip:not(.active){opacity:.4}
+
+/* ── NAV ── */
+.nav-tabs{display:flex;background:var(--warm);border-bottom:2px solid var(--peach-l)}
+.nav-tab{flex:1;padding:11px 4px;text-align:center;font-size:12px;font-weight:500;color:var(--brown-l);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s}
+.nav-tab.active{color:var(--peach-d);border-bottom-color:var(--peach-d)}
+
+/* ── CALENDAR ── */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 6px}
+.cal-month{font-size:17px;font-weight:700}
+.cal-btn{width:34px;height:34px;border-radius:50%;border:none;background:var(--peach-l);color:var(--peach-d);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.cal-btn:hover{background:var(--peach);color:#fff}
+.weekdays{display:grid;grid-template-columns:repeat(7,1fr);padding:0 10px;text-align:center;font-size:10px;font-weight:700;color:var(--brown-l);margin-bottom:3px}
+.weekdays span:first-child{color:var(--rose)}.weekdays span:last-child{color:var(--sky)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;padding:0 10px 10px}
+.cal-day{min-height:52px;border-radius:10px;padding:3px;cursor:pointer;transition:background .15s}
+.cal-day:hover{background:var(--peach-l)}
+.cal-day.today .day-num{background:var(--peach-d);color:#fff;border-radius:50%}
+.cal-day.selected{background:var(--peach-l)}
+.cal-day.other-month .day-num{color:#ccc}
+.cal-day.sunday .day-num{color:var(--rose)}.cal-day.saturday .day-num{color:var(--sky)}
+.day-num{font-size:12px;font-weight:500;width:22px;height:22px;display:flex;align-items:center;justify-content:center;margin-bottom:2px}
+.day-dots{display:flex;flex-wrap:wrap;gap:2px}
+.day-dot{width:5px;height:5px;border-radius:50%}
+
+/* ── DAY PANEL ── */
+.day-panel{background:var(--warm);border-radius:18px 18px 0 0;padding:14px;margin-top:4px}
+.day-panel-title{font-size:14px;font-weight:700;margin-bottom:10px;padding-bottom:7px;border-bottom:1px dashed var(--peach-l)}
+
+/* ── LIST ── */
+.list-view{padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+.list-date-header{font-size:11px;font-weight:700;color:var(--brown-l);letter-spacing:1px;padding:4px 0;margin-top:8px;border-bottom:1px dashed var(--peach-l)}
+.no-events{text-align:center;color:var(--brown-l);font-size:13px;padding:18px;opacity:.6}
+
+/* ── EVENT CARD ── */
+.event-card{background:var(--warm);border-radius:12px;padding:11px 13px;box-shadow:0 2px 8px var(--shadow);border-left:4px solid var(--peach);cursor:pointer;animation:slideIn .2s ease}
+.event-card:active{transform:scale(.98)}
+@keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.ev-title{font-size:14px;font-weight:700;margin-bottom:2px}
+.ev-meta{font-size:11px;color:var(--brown-l);display:flex;gap:8px;flex-wrap:wrap}
+.ev-members{display:flex;gap:3px;flex-wrap:wrap;margin-top:5px}
+.ev-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:500}
+
+/* ── FAB ── */
+.fab{position:fixed;bottom:22px;right:18px;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,var(--peach),var(--peach-d));color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(224,123,58,.45);display:flex;align-items:center;justify-content:center;z-index:200}
+.fab:active{transform:scale(.92)}
+
+/* ── MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(74,55,40,.4);z-index:300;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--warm);border-radius:22px 22px 0 0;width:100%;max-width:600px;padding:18px 18px 36px;max-height:90vh;overflow-y:auto;animation:slideUp .28s cubic-bezier(.34,1.56,.64,1)}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-handle{width:38px;height:4px;background:var(--peach-l);border-radius:2px;margin:0 auto 14px}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:18px}
+.fg{margin-bottom:14px}
+.fl{font-size:11px;font-weight:700;color:var(--brown-l);margin-bottom:5px;display:block;letter-spacing:.5px}
+.fi{width:100%;padding:11px 13px;border:2px solid var(--peach-l);border-radius:11px;font-family:'Noto Sans JP',sans-serif;font-size:14px;color:var(--brown);background:var(--cream);outline:none;transition:border-color .2s}
+.fi:focus{border-color:var(--peach)}
+textarea.fi{resize:vertical;min-height:70px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.msb{padding:7px 12px;border-radius:18px;border:2px solid transparent;font-family:'Noto Sans JP',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s}
+.msb.sel{border-color:currentColor}
+.color-picker{display:flex;gap:9px;flex-wrap:wrap}
+.color-opt{width:30px;height:30px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
+.color-opt.selected{border-color:var(--brown);transform:scale(1.18)}
+.btn-primary{width:100%;padding:13px;border-radius:13px;border:none;background:linear-gradient(135deg,var(--peach),var(--peach-d));color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.btn-secondary{width:100%;padding:11px;border-radius:13px;border:2px solid var(--peach-l);background:#fff;color:var(--brown-l);font-family:'Noto Sans JP',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin-top:8px}
+.btn-delete{width:100%;padding:11px;border-radius:13px;border:2px solid #ffb3b3;background:#fff;color:#d9534f;font-family:'Noto Sans JP',sans-serif;font-size:14px;cursor:pointer;margin-top:8px}
+
+/* ── INVITE ── */
+.invite-box{background:var(--cream);border-radius:11px;padding:12px;font-size:12px;word-break:break-all;color:var(--brown-l);border:1px dashed var(--peach);margin-bottom:12px;line-height:1.6}
+.btn-line{width:100%;padding:13px;border-radius:13px;border:none;background:var(--line);color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px}
+.btn-copy{width:100%;padding:11px;border-radius:13px;border:2px solid var(--peach-l);background:#fff;color:var(--brown);font-family:'Noto Sans JP',sans-serif;font-size:14px;cursor:pointer;margin-top:8px}
+.mrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;margin-bottom:6px}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--brown);color:#fff;padding:10px 22px;border-radius:20px;font-size:13px;opacity:0;transition:all .3s;pointer-events:none;z-index:500;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- ══ SETUP ══════════════════════════════════ -->
+<div id="setupScreen">
+  <div class="setup-logo">🏠 家族カレンダー</div>
+  <div class="setup-sub">Family Scheduler — Firebase リアルタイム共有版</div>
+
+  <!-- 新規作成カード -->
+  <div class="setup-card" id="cardNew">
+    <div class="setup-card-title">🆕 新しくカレンダーを作成 <span class="step-badge">STEP 1</span></div>
+    <input class="si" id="cfgApiKey"      placeholder="Firebase apiKey">
+    <input class="si" id="cfgProjectId"   placeholder="Firebase projectId">
+    <input class="si" id="cfgDbUrl"       placeholder="databaseURL  (https://xxx-default-rtdb.firebaseio.com)">
+    <div class="si-hint">
+      Firebase Console → プロジェクト設定 → マイアプリ → SDK 設定 からコピー。<br>
+      Realtime Database を有効にし、ルールを <code>"read":true,"write":true</code> に変更してください。
+    </div>
+    <input class="si" id="cfgFamilyName"  placeholder="カレンダー名（例: 田中家）">
+    <input class="si" id="cfgMyName"      placeholder="あなたの名前（例: パパ）">
+    <button class="btn-go" onclick="startNew()">🚀 作成してはじめる</button>
+  </div>
+
+  <!-- 招待参加カード -->
+  <div class="setup-card" id="cardJoin">
+    <div class="setup-card-title">🔗 招待リンクで参加</div>
+    <input class="si" id="cfgMyNameJoin" placeholder="あなたの名前">
+    <div class="si-hint" id="joinHint">招待URLを開くと自動入力されます</div>
+    <button class="btn-join" onclick="joinFamily()">👪 このカレンダーに参加する</button>
+  </div>
+</div>
+
+<!-- ══ LOADING ══════════════════════════════════ -->
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div style="font-size:14px;color:var(--brown-l)">Firebase に接続中…</div>
+</div>
+
+<!-- ══ APP ══════════════════════════════════════ -->
+<div id="app">
+  <header>
+    <div>
+      <h1>🏠 <span id="appFamilyName">家族カレンダー</span></h1>
+    </div>
+    <div class="hdr-btns">
+      <div class="sync-dot" id="syncDot" title="リアルタイム同期状態"></div>
+      <button class="hdr-btn" onclick="openInviteModal()" title="招待">🔗</button>
+      <button class="hdr-btn" onclick="openMemberModal()" title="メンバー">👥</button>
+    </div>
+  </header>
+
+  <div class="member-bar" id="memberBar"></div>
+
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchView('calendar')" id="tab-calendar">📅 カレンダー</div>
+    <div class="nav-tab"       onclick="switchView('list')"     id="tab-list">📋 リスト</div>
+  </div>
+
+  <!-- Calendar View -->
+  <div id="view-calendar">
+    <div class="cal-nav">
+      <button class="cal-btn" onclick="changeMonth(-1)">‹</button>
+      <div class="cal-month" id="calMonth"></div>
+      <button class="cal-btn" onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="day-panel">
+      <div class="day-panel-title" id="dayPanelTitle">日付をタップしてください</div>
+      <div id="dayEventList"><div class="no-events">← カレンダーで日付をタップ</div></div>
+    </div>
+  </div>
+
+  <!-- List View -->
+  <div id="view-list" class="hidden">
+    <div class="list-view" id="listView"></div>
+  </div>
+
+  <button class="fab" onclick="openAddModal()">＋</button>
+</div>
+
+<!-- ══ EVENT MODAL ══════════════════════════════ -->
+<div class="modal-overlay" id="eventModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modalTitle">予定を追加</div>
+    <div class="fg"><label class="fl">タイトル *</label><input class="fi" id="evTitle" placeholder="例：病院、お買い物、誕生日" maxlength="30"></div>
+    <div class="fg"><label class="fl">日付 *</label><input class="fi" type="date" id="evDate"></div>
+    <div class="two-col">
+      <div class="fg"><label class="fl">開始時間</label><input class="fi" type="time" id="evStart"></div>
+      <div class="fg"><label class="fl">終了時間</label><input class="fi" type="time" id="evEnd"></div>
+    </div>
+    <div class="fg"><label class="fl">場所</label><input class="fi" id="evPlace" placeholder="例：駅前クリニック"></div>
+    <div class="fg"><label class="fl">メモ</label><textarea class="fi" id="evNote" placeholder="メモ…"></textarea></div>
+    <div class="fg"><label class="fl">参加メンバー</label><div style="display:flex;gap:7px;flex-wrap:wrap" id="memberSelectGrid"></div></div>
+    <div class="fg"><label class="fl">カラー</label><div class="color-picker" id="colorPicker"></div></div>
+    <button class="btn-primary" onclick="saveEvent()">保存する</button>
+    <button class="btn-delete hidden" id="btnDelete" onclick="deleteEvent()">この予定を削除</button>
+    <button class="btn-secondary" onclick="closeModal('eventModal')">キャンセル</button>
+  </div>
+</div>
+
+<!-- ══ MEMBER MODAL ══════════════════════════════ -->
+<div class="modal-overlay" id="memberModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">👥 メンバー管理</div>
+    <div id="memberListEl"></div>
+    <div class="fg" style="margin-top:14px">
+      <label class="fl">メンバーを追加</label>
+      <div style="display:flex;gap:8px">
+        <input class="fi" id="newMemberName" placeholder="名前" style="flex:1" maxlength="10">
+        <button class="btn-primary" style="width:auto;padding:11px 16px;margin:0" onclick="addMember()">追加</button>
+      </div>
+      <div style="margin-top:10px"><label class="fl">カラー</label><div class="color-picker" id="memberColorPicker"></div></div>
+    </div>
+    <button class="btn-secondary" onclick="closeModal('memberModal')">閉じる</button>
+  </div>
+</div>
+
+<!-- ══ INVITE MODAL ══════════════════════════════ -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔗 家族を招待する</div>
+    <p style="font-size:13px;color:var(--brown-l);margin-bottom:14px;line-height:1.7">
+      このリンクを家族に送ってください。<br>リンクを開くだけで自動的に参加できます。
+    </p>
+    <div class="invite-box" id="inviteUrlBox">生成中…</div>
+    <button class="btn-line" onclick="shareToLine()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.03 2 11c0 3.08 1.64 5.81 4.17 7.53-.18.64-.65 2.32-.75 2.68-.12.44.16.44.34.32.14-.1 1.8-1.23 2.53-1.73.53.08 1.13.12 1.71.12 5.52 0 10-4.03 10-9S17.52 2 12 2z"/></svg>
+      LINEで送る
+    </button>
+    <button class="btn-copy" onclick="copyInviteUrl()">📋 URLをコピーする</button>
+    <button class="btn-secondary" onclick="closeModal('inviteModal')">閉じる</button>
+  </div>
+</div>
+
+<!-- ══ TOAST ══ -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────
+const COLORS=[
+  {id:'peach',hex:'#F4A26B',light:'#FAD5B5'},
+  {id:'sage', hex:'#7BAE8A',light:'#B8D4C0'},
+  {id:'sky',  hex:'#6BA8C4',light:'#B5D5E8'},
+  {id:'lav',  hex:'#9B7FC4',light:'#CFBFE8'},
+  {id:'rose', hex:'#C46B8A',light:'#E8B5C8'},
+  {id:'gold', hex:'#D4A84B',light:'#EDD9A3'},
+];
+const DN=['日','月','火','水','木','金','土'];
+function uid(){return '_'+Math.random().toString(36).slice(2,9)}
+function today(){const d=new Date();return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`}
+function p2(n){return String(n).padStart(2,'0')}
+function gc(id){return COLORS.find(c=>c.id===id)||COLORS[0]}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400)}
+
+// ── UI State ───────────────────────────────────────────────
+const ui={
+  year:new Date().getFullYear(),month:new Date().getMonth(),
+  selDate:today(),selColor:'peach',memColor:'peach',
+  editId:null,evMembers:[],activeMembers:new Set(),view:'calendar',
+};
+
+// ── Firebase State ─────────────────────────────────────────
+let db=null, familyId='', myInfo={id:'',name:''};
+let live={familyName:'',members:{},events:{}};
+
+// ── Saved Config ───────────────────────────────────────────
+function loadCfg(){try{return JSON.parse(localStorage.getItem('fsc'))}catch{return null}}
+function saveCfg(o){localStorage.setItem('fsc',JSON.stringify(o))}
+
+// ── Boot ───────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded',()=>{
+  // URLパラメータ解析（招待リンク）
+  const sp=new URLSearchParams(location.search);
+  const urlFid=sp.get('fid'), urlCfg=sp.get('cfg');
+  if(urlFid&&urlCfg){
+    try{
+      const dec=JSON.parse(atob(urlCfg));
+      document.getElementById('cfgApiKey').value   =dec.apiKey||'';
+      document.getElementById('cfgProjectId').value=dec.projectId||'';
+      document.getElementById('cfgDbUrl').value    =dec.dbUrl||'';
+      document.getElementById('cfgFamilyName').value=dec.familyName||'';
+      // JOINカードにデータを仕込む
+      const jn=document.getElementById('cfgMyNameJoin');
+      jn.dataset.fid=urlFid; jn.dataset.cfg=urlCfg;
+      document.getElementById('joinHint').textContent=`「${dec.familyName||'家族カレンダー'}」に参加します`;
+      // NEW カードを折りたたむ
+      document.getElementById('cardNew').style.display='none';
+    }catch(e){}
+  }
+  // 保存済み設定があれば自動ログイン
+  const saved=loadCfg();
+  if(saved&&saved.apiKey){showLoading();waitFb(()=>initFb(saved,false));}
+});
+
+// ── Setup: 新規 ────────────────────────────────────────────
+function startNew(){
+  const apiKey    =document.getElementById('cfgApiKey').value.trim();
+  const projectId =document.getElementById('cfgProjectId').value.trim();
+  const dbUrl     =document.getElementById('cfgDbUrl').value.trim();
+  const familyName=document.getElementById('cfgFamilyName').value.trim();
+  const myName    =document.getElementById('cfgMyName').value.trim();
+  if(!apiKey||!projectId||!dbUrl||!familyName||!myName){alert('すべての項目を入力してください');return;}
+  const cfg={apiKey,projectId,dbUrl,familyName,fid:uid()+'_'+uid(),myId:uid(),myName,isOwner:true};
+  saveCfg(cfg);
+  showLoading();
+  waitFb(()=>initFb(cfg,true));
+}
+
+// ── Setup: 参加 ────────────────────────────────────────────
+function joinFamily(){
+  const myName=document.getElementById('cfgMyNameJoin').value.trim();
+  const el=document.getElementById('cfgMyNameJoin');
+  const fid=el.dataset.fid||'', cfgB64=el.dataset.cfg||'';
+  if(!myName){alert('あなたの名前を入力してください');return;}
+  if(!fid||!cfgB64){alert('招待URLが見つかりません。招待リンクから開いてください');return;}
+  try{
+    const dec=JSON.parse(atob(cfgB64));
+    const cfg={...dec,fid,myId:uid(),myName,isOwner:false};
+    saveCfg(cfg);
+    showLoading();
+    waitFb(()=>initFb(cfg,false));
+  }catch(e){alert('招待リンクの解析に失敗しました')}
+}
+
+// ── Firebase init ──────────────────────────────────────────
+function waitFb(fn){
+  if(window._FB) fn();
+  else document.addEventListener('fbReady',fn,{once:true});
+}
+
+function initFb(cfg,isNew){
+  try{
+    const {initializeApp,getDatabase,ref,onValue,set,push,remove}=window._FB;
+    // 同じ設定で複数回 initializeApp を防ぐ
+    let app;
+    try{ app=initializeApp({apiKey:cfg.apiKey,projectId:cfg.projectId,databaseURL:cfg.dbUrl},'fam'); }
+    catch(e){ app=window._FB._app; }
+    db=getDatabase(app);
+    window._FB._app=app;
+    window._DB={ref,onValue,set,push,remove,db};
+    familyId=cfg.fid;
+    myInfo={id:cfg.myId,name:cfg.myName};
+
+    if(isNew){
+      // 新規: 初期データを書き込む
+      const colorId=COLORS[Math.floor(Math.random()*COLORS.length)].id;
+      set(ref(db,`families/${familyId}`),{
+        familyName:cfg.familyName,
+        members:{[myInfo.id]:{name:myInfo.name,color:colorId,joinedAt:Date.now()}},
+        events:{}
+      }).then(()=>subscribe()).catch(err=>{fbError(err)});
+    } else {
+      // 参加: 自分をメンバーとして追加
+      const colorId=COLORS[Math.floor(Math.random()*COLORS.length)].id;
+      set(ref(db,`families/${familyId}/members/${myInfo.id}`),
+        {name:myInfo.name,color:colorId,joinedAt:Date.now()}
+      ).then(()=>subscribe()).catch(err=>{fbError(err)});
+    }
+  }catch(e){fbError(e)}
+}
+
+function subscribe(){
+  const {ref,onValue,db}=window._DB;
+  onValue(ref(db,`families/${familyId}`), snap=>{
+    const data=snap.val()||{};
+    live={familyName:data.familyName||'家族カレンダー',members:data.members||{},events:data.events||{}};
+    if(ui.activeMembers.size===0) Object.keys(live.members).forEach(id=>ui.activeMembers.add(id));
+    hideLoading();
+    document.getElementById('app').style.display='block';
+    document.getElementById('appFamilyName').textContent=live.familyName;
+    document.getElementById('syncDot').classList.add('live');
+    render();
+  },err=>{
+    document.getElementById('syncDot').classList.remove('live');
+    console.error(err);
+  });
+}
+
+function fbError(e){
+  hideLoading();
+  alert('Firebase接続に失敗しました。\n設定を確認してください。\n\n'+e.message);
+  localStorage.removeItem('fsc');
+}
+
+function showLoading(){document.getElementById('setupScreen').style.display='none';document.getElementById('loadingScreen').style.display='flex'}
+function hideLoading(){document.getElementById('loadingScreen').style.display='none'}
+
+// ── View ───────────────────────────────────────────────────
+function switchView(v){
+  ui.view=v;
+  document.getElementById('view-calendar').classList.toggle('hidden',v!=='calendar');
+  document.getElementById('view-list').classList.toggle('hidden',v!=='list');
+  document.getElementById('tab-calendar').classList.toggle('active',v==='calendar');
+  document.getElementById('tab-list').classList.toggle('active',v==='list');
+  render();
+}
+
+// ── Render ─────────────────────────────────────────────────
+function render(){
+  renderMemberBar();
+  if(ui.view==='calendar') renderCalendar();
+  else renderList();
+}
+
+function renderMemberBar(){
+  document.getElementById('memberBar').innerHTML=Object.entries(live.members).map(([id,m])=>{
+    const c=gc(m.color),active=ui.activeMembers.has(id),isMe=id===myInfo.id;
+    return `<div class="member-chip ${active?'active':''}" style="background:${active?c.light:'#f0ece8'};color:${c.hex}" onclick="toggleMember('${id}')">
+      <div class="dot" style="background:${c.hex}"></div>${m.name}${isMe?' 👤':''}
+    </div>`;
+  }).join('');
+}
+function toggleMember(id){ui.activeMembers.has(id)?ui.activeMembers.delete(id):ui.activeMembers.add(id);render()}
+
+// ── Calendar ───────────────────────────────────────────────
+function renderCalendar(){
+  const {year:y,month:mo}=ui;
+  document.getElementById('calMonth').textContent=`${y}年 ${mo+1}月`;
+  const lastDay=new Date(y,mo+1,0).getDate();
+  const startDow=new Date(y,mo,1).getDay();
+  const visEvs=getVisibleEvents();
+  let html='';
+  const prevLast=new Date(y,mo,0).getDate();
+  for(let i=startDow-1;i>=0;i--) html+=`<div class="cal-day other-month"><div class="day-num">${prevLast-i}</div></div>`;
+  for(let d=1;d<=lastDay;d++){
+    const ds=`${y}-${p2(mo+1)}-${p2(d)}`;
+    const dow=new Date(y,mo,d).getDay();
+    const dayEvs=visEvs.filter(e=>e.date===ds);
+    const dots=dayEvs.slice(0,6).map(e=>`<div class="day-dot" style="background:${gc(e.color).hex}"></div>`).join('');
+    html+=`<div class="cal-day${ds===today()?' today':''}${ds===ui.selDate?' selected':''}${dow===0?' sunday':dow===6?' saturday':''}" onclick="selDay('${ds}')">
+      <div class="day-num">${d}</div><div class="day-dots">${dots}</div></div>`;
+  }
+  const rem=(startDow+lastDay)%7;
+  if(rem>0) for(let i=1;i<=7-rem;i++) html+=`<div class="cal-day other-month"><div class="day-num">${i}</div></div>`;
+  document.getElementById('calGrid').innerHTML=html;
+  renderDayPanel();
+}
+function selDay(ds){ui.selDate=ds;renderCalendar()}
+function changeMonth(d){let{year:y,month:mo}=ui;mo+=d;if(mo<0){mo=11;y--}if(mo>11){mo=0;y++}ui.year=y;ui.month=mo;renderCalendar()}
+function renderDayPanel(){
+  const ds=ui.selDate;if(!ds)return;
+  const d=new Date(ds+'T00:00:00');
+  document.getElementById('dayPanelTitle').textContent=`${d.getMonth()+1}月${d.getDate()}日（${DN[d.getDay()]}）の予定`;
+  const evs=getVisibleEvents().filter(e=>e.date===ds).sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+  document.getElementById('dayEventList').innerHTML=evs.length?evs.map(eventCard).join(''):'<div class="no-events">予定はありません</div>';
+}
+
+// ── List ───────────────────────────────────────────────────
+function renderList(){
+  const now=today();
+  const all=getVisibleEvents().sort((a,b)=>a.date.localeCompare(b.date)||(a.start||'').localeCompare(b.start||''));
+  const upcoming=all.filter(e=>e.date>=now),past=all.filter(e=>e.date<now);
+  let html='';
+  if(!all.length){html='<div class="no-events" style="padding:40px">予定がありません<br>＋ボタンで追加！</div>'}
+  let ld='';
+  for(const e of upcoming){
+    if(e.date!==ld){const d=new Date(e.date+'T00:00:00');html+=`<div class="list-date-header">${d.getMonth()+1}月${d.getDate()}日（${DN[d.getDay()]}）</div>`;ld=e.date}
+    html+=eventCard(e);
+  }
+  if(past.length){
+    html+='<div class="list-date-header" style="margin-top:16px;opacity:.5">── 過去の予定 ──</div>';ld='';
+    for(const e of [...past].reverse()){
+      if(e.date!==ld){const d=new Date(e.date+'T00:00:00');html+=`<div class="list-date-header" style="opacity:.5">${d.getMonth()+1}月${d.getDate()}日</div>`;ld=e.date}
+      html+=`<div style="opacity:.55">${eventCard(e)}</div>`;
+    }
+  }
+  document.getElementById('listView').innerHTML=html;
+}
+
+function getVisibleEvents(){
+  return Object.entries(live.events).map(([id,e])=>({...e,id}))
+    .filter(e=>(e.members||[]).some(mid=>ui.activeMembers.has(mid)));
+}
+
+function eventCard(e){
+  const c=gc(e.color);
+  const badges=(e.members||[]).map(mid=>{const m=live.members[mid];if(!m)return'';const mc=gc(m.color);return`<span class="ev-badge" style="background:${mc.light};color:${mc.hex}">${m.name}</span>`}).join('');
+  const t=e.start?`⏰ ${e.start}${e.end?' 〜 '+e.end:''}`:' ';
+  const pl=e.place?`📍 ${e.place}`:'';
+  return `<div class="event-card" style="border-left-color:${c.hex}" onclick="openEditModal('${e.id}')">
+    <div class="ev-title">${e.title}</div>
+    <div class="ev-meta">${t?`<span>${t}</span>`:''}${pl?`<span>${pl}</span>`:''}</div>
+    <div class="ev-members">${badges}</div>
+  </div>`;
+}
+
+// ── Event Modal ────────────────────────────────────────────
+function openAddModal(){
+  ui.editId=null;ui.evMembers=Object.keys(live.members);ui.selColor='peach';
+  document.getElementById('modalTitle').textContent='予定を追加';
+  ['evTitle','evStart','evEnd','evPlace','evNote'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('evDate').value=ui.selDate||today();
+  document.getElementById('btnDelete').classList.add('hidden');
+  renderMSG();renderCP('colorPicker','selColor');openModal('eventModal');
+}
+function openEditModal(id){
+  const e=live.events[id];if(!e)return;
+  ui.editId=id;ui.evMembers=[...(e.members||[])];ui.selColor=e.color||'peach';
+  document.getElementById('modalTitle').textContent='予定を編集';
+  document.getElementById('evTitle').value=e.title;
+  document.getElementById('evDate').value=e.date;
+  document.getElementById('evStart').value=e.start||'';
+  document.getElementById('evEnd').value=e.end||'';
+  document.getElementById('evPlace').value=e.place||'';
+  document.getElementById('evNote').value=e.note||'';
+  document.getElementById('btnDelete').classList.remove('hidden');
+  renderMSG();renderCP('colorPicker','selColor');openModal('eventModal');
+}
+function saveEvent(){
+  const title=document.getElementById('evTitle').value.trim();
+  const date=document.getElementById('evDate').value;
+  if(!title||!date){alert('タイトルと日付は必須です');return}
+  const ev={title,date,
+    start:document.getElementById('evStart').value,
+    end:document.getElementById('evEnd').value,
+    place:document.getElementById('evPlace').value.trim(),
+    note:document.getElementById('evNote').value.trim(),
+    members:[...ui.evMembers],color:ui.selColor,
+    updatedAt:Date.now(),updatedBy:myInfo.id
+  };
+  const {ref,set,push,db}=window._DB;
+  if(ui.editId) set(ref(db,`families/${familyId}/events/${ui.editId}`),ev);
+  else push(ref(db,`families/${familyId}/events`),ev);
+  const d=new Date(date+'T00:00:00');
+  ui.year=d.getFullYear();ui.month=d.getMonth();ui.selDate=date;
+  closeModal('eventModal');toast('✅ 保存しました');
+}
+function deleteEvent(){
+  if(!confirm('この予定を削除しますか？'))return;
+  const {ref,remove,db}=window._DB;
+  remove(ref(db,`families/${familyId}/events/${ui.editId}`));
+  closeModal('eventModal');toast('🗑️ 削除しました');
+}
+function renderMSG(){
+  document.getElementById('memberSelectGrid').innerHTML=Object.entries(live.members).map(([id,m])=>{
+    const c=gc(m.color),sel=ui.evMembers.includes(id);
+    return `<button class="msb ${sel?'sel':''}" style="background:${sel?c.light:'#f5f0eb'};color:${c.hex}" onclick="tEM('${id}')">${m.name}</button>`;
+  }).join('');
+}
+function tEM(id){const i=ui.evMembers.indexOf(id);if(i>=0)ui.evMembers.splice(i,1);else ui.evMembers.push(id);renderMSG()}
+
+// ── Color Picker ───────────────────────────────────────────
+function renderCP(elId,key){
+  document.getElementById(elId).innerHTML=COLORS.map(c=>
+    `<div class="color-opt ${ui[key]===c.id?'selected':''}" style="background:${c.hex}" onclick="selColor('${c.id}','${elId}','${key}')"></div>`
+  ).join('');
+}
+function selColor(cid,elId,key){ui[key]=cid;renderCP(elId,key)}
+
+// ── Member Modal ───────────────────────────────────────────
+function openMemberModal(){ui.memColor='peach';renderML();renderCP('memberColorPicker','memColor');openModal('memberModal')}
+function renderML(){
+  document.getElementById('memberListEl').innerHTML=Object.entries(live.members).map(([id,m])=>{
+    const c=gc(m.color),isMe=id===myInfo.id;
+    return `<div class="mrow" style="background:${c.light}">
+      <div style="width:10px;height:10px;border-radius:50%;background:${c.hex}"></div>
+      <div style="flex:1;font-weight:500;font-size:14px">${m.name}${isMe?' 👤':''}</div>
+      ${!isMe?`<button class="hdr-btn" style="background:#ffebeb;font-size:13px" onclick="removeMember('${id}')">✕</button>`:''}
+    </div>`;
+  }).join('');
+}
+function addMember(){
+  const name=document.getElementById('newMemberName').value.trim();
+  if(!name){alert('名前を入力してください');return}
+  const {ref,set,db}=window._DB;
+  set(ref(db,`families/${familyId}/members/${uid()}`),{name,color:ui.memColor,joinedAt:Date.now()});
+  document.getElementById('newMemberName').value='';
+  toast('👤 '+name+' を追加しました');
+}
+function removeMember(id){
+  if(!confirm('メンバーを削除しますか？'))return;
+  const {ref,remove,db}=window._DB;
+  remove(ref(db,`families/${familyId}/members/${id}`));
+  toast('🗑️ メンバーを削除しました');
+}
+
+// ── Invite ─────────────────────────────────────────────────
+function openInviteModal(){
+  const cfg=loadCfg();if(!cfg)return;
+  const b64=btoa(JSON.stringify({apiKey:cfg.apiKey,projectId:cfg.projectId,dbUrl:cfg.dbUrl,familyName:live.familyName}));
+  const url=`${location.origin}${location.pathname}?fid=${familyId}&cfg=${b64}`;
+  const box=document.getElementById('inviteUrlBox');
+  box.textContent=url;box.dataset.url=url;
+  openModal('inviteModal');
+}
+function shareToLine(){
+  const url=document.getElementById('inviteUrlBox').dataset.url;
+  const text=encodeURIComponent(`【${live.familyName}】に招待します🏠\nリンクをタップして参加してください！`);
+  window.open(`https://line.me/R/msg/text/?${text}%0A${encodeURIComponent(url)}`,'_blank');
+}
+function copyInviteUrl(){
+  navigator.clipboard.writeText(document.getElementById('inviteUrlBox').dataset.url)
+    .then(()=>toast('📋 URLをコピーしました'));
+}
+
+// ── Modal helpers ──────────────────────────────────────────
+function openModal(id){document.getElementById(id).classList.add('open')}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+document.querySelectorAll('.modal-overlay').forEach(el=>{
+  el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open')});
+});
+</script>
+</body>
+</html>
